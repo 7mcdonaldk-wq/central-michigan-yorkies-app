@@ -658,44 +658,45 @@ async function loadAllData() {
 }
 
 async function loadParents() {
-  const { data, error } = await supabase.from('parents').select('*').order('name');
-  if (!error) State.parents = data || [];
+  State.parents = await safeLoad('parents', () => supabase.from('parents').select('*').order('name'));
 }
 async function loadLitters() {
-  const { data, error } = await supabase.from('litters').select('*, dam:parents!litters_dam_id_fkey(name), sire:parents!litters_sire_id_fkey(name)').order('whelp_date', { ascending: false, nullsFirst: false });
-  if (!error) State.litters = data || [];
+  State.litters = await safeLoad('litters', () => supabase.from('litters').select('*, dam:parents!litters_dam_id_fkey(name), sire:parents!litters_sire_id_fkey(name)').order('whelp_date', { ascending: false, nullsFirst: false }));
 }
 async function loadPuppies() {
-  const { data, error } = await supabase.from('puppies').select('*, litter:litters(id, name, dam:parents!litters_dam_id_fkey(name), sire:parents!litters_sire_id_fkey(name)), buyer:leads(first_name, last_name)').order('date_of_birth', { ascending: false, nullsFirst: false });
-  if (!error) State.puppies = data || [];
+  State.puppies = await safeLoad('puppies', () => supabase.from('puppies').select('*, litter:litters(id, name, dam:parents!litters_dam_id_fkey(name), sire:parents!litters_sire_id_fkey(name)), buyer:leads(first_name, last_name)').order('date_of_birth', { ascending: false, nullsFirst: false }));
 }
 async function loadLeads() {
-  const { data, error } = await supabase.from('leads').select('*').eq('archived', false).order('score', { ascending: false });
-  if (!error) State.leads = data || [];
+  State.leads = await safeLoad('leads', () => supabase.from('leads').select('*').eq('archived', false).order('score', { ascending: false }));
 }
 async function loadPayments() {
-  const { data, error } = await supabase.from('payments').select('*, lead:leads(first_name, last_name), puppy:puppies(name)').order('payment_date', { ascending: false });
-  if (!error) State.payments = data || [];
+  State.payments = await safeLoad('payments', () => supabase.from('payments').select('*, lead:leads(first_name, last_name), puppy:puppies(name)').order('payment_date', { ascending: false }));
 }
 async function loadInvoices() {
-  const { data, error } = await supabase.from('invoices').select('*, lead:leads(first_name, last_name), puppy:puppies(name)').order('created_at', { ascending: false });
-  if (!error) State.invoices = data || [];
+  State.invoices = await safeLoad('invoices', () => supabase.from('invoices').select('*, lead:leads(first_name, last_name), puppy:puppies(name)').order('created_at', { ascending: false }));
 }
 async function loadExpenses() {
-  const { data, error } = await supabase.from('expenses').select('*, litter:litters(name), puppy:puppies(name)').order('expense_date', { ascending: false });
-  if (!error) State.expenses = data || [];
+  State.expenses = await safeLoad('expenses', () => supabase.from('expenses').select('*, litter:litters(name), puppy:puppies(name)').order('expense_date', { ascending: false }));
 }
 async function loadTasks() {
-  const { data, error } = await supabase.from('tasks').select('*, related_puppy:puppies(name), related_lead:leads(first_name, last_name), related_litter:litters(id, dam:parents!litters_dam_id_fkey(name), sire:parents!litters_sire_id_fkey(name))').order('due_date', { ascending: true, nullsFirst: false });
-  if (!error) State.tasks = data || [];
+  State.tasks = await safeLoad('tasks', () => supabase.from('tasks').select('*, related_puppy:puppies(name), related_lead:leads(first_name, last_name), related_litter:litters(id, dam:parents!litters_dam_id_fkey(name), sire:parents!litters_sire_id_fkey(name))').order('due_date', { ascending: true, nullsFirst: false }));
 }
 async function loadContracts() {
-  const { data, error } = await supabase.from('contracts').select('*, lead:leads(first_name, last_name, email), puppy:puppies(name)').order('created_at', { ascending: false });
-  if (!error) State.contracts = data || [];
+  State.contracts = await safeLoad('contracts', () => supabase.from('contracts').select('*, lead:leads(first_name, last_name, email), puppy:puppies(name)').order('created_at', { ascending: false }));
 }
 
 function renderAll() {
-  renderDashboard(); renderLeads(); renderPuppies(); renderLitters(); renderParents(); renderMoney(); renderExpenses(); renderCalendar(); renderContracts(); renderReports();
+  // Audit fix #7 — each render is isolated; a thrown error in one screen doesn't kill the rest
+  safeRender('dashboard', renderDashboard);
+  safeRender('leads', renderLeads);
+  safeRender('puppies', renderPuppies);
+  safeRender('litters', renderLitters);
+  safeRender('parents', renderParents);
+  safeRender('money', renderMoney);
+  safeRender('expenses', renderExpenses);
+  safeRender('calendar', renderCalendar);
+  safeRender('contracts', renderContracts);
+  safeRender('reports', renderReports);
 }
 
 // ============================================================
@@ -720,14 +721,14 @@ function renderDashboard() {
   $('#dashLeads').innerHTML = hot.length === 0
     ? '<div class="empty-state" style="padding:30px 10px;"><p>No hot leads yet. New applications will appear here.</p></div>'
     : hot.map(l => `<div class="lead-card" style="margin-bottom:10px;" onclick="openLeadDrawer('${l.id}')">
-        <div class="lead-card-name">${l.first_name} ${l.last_name || ''} <span class="lead-score ${scoreClass(l.score)}">${l.score} ${scoreLabel(l.score)}</span></div>
+        <div class="lead-card-name">${escapeHTML(l.first_name || '')} ${escapeHTML(l.last_name || '')} <span class="lead-score ${scoreClass(l.score)}">${l.score} ${scoreLabel(l.score)}</span></div>
         <div class="lead-card-meta">${[l.city, l.state].filter(Boolean).join(', ') || '—'} · ${l.status}</div>
       </div>`).join('');
 
   // Activity (recent items across tables)
   const items = [];
-  State.payments.slice(0, 3).forEach(p => items.push({ when: p.created_at, icon: '💰', text: `<strong>${fmtCurrency(p.amount)}</strong> received via ${p.payment_method.toUpperCase()}${p.lead ? ' from ' + p.lead.first_name + ' ' + (p.lead.last_name || '') : ''}` }));
-  State.leads.slice(0, 3).forEach(l => items.push({ when: l.created_at, icon: '👤', text: `New lead: <strong>${l.first_name} ${l.last_name || ''}</strong> · score ${l.score}` }));
+  State.payments.slice(0, 3).forEach(p => items.push({ when: p.created_at, icon: '💰', text: `<strong>${fmtCurrency(p.amount)}</strong> received via ${escapeHTML((p.payment_method || 'unknown').toUpperCase())}${p.lead ? ' from ' + escapeHTML(p.lead.first_name || '') + ' ' + escapeHTML(p.lead.last_name || '') : ''}` }));
+  State.leads.slice(0, 3).forEach(l => items.push({ when: l.created_at, icon: '👤', text: `New lead: <strong>${escapeHTML(l.first_name || '')} ${escapeHTML(l.last_name || '')}</strong> · score ${l.score}` }));
   State.puppies.slice(0, 2).forEach(p => items.push({ when: p.created_at, icon: '🐾', text: `Puppy added: <strong>${p.name}</strong>` }));
   items.sort((a, b) => new Date(b.when) - new Date(a.when));
   const top = items.slice(0, 6);
@@ -748,12 +749,12 @@ function renderLeads() {
   const statuses = ['new', 'contacted', 'vetted', 'approved', 'deposited'];
   statuses.forEach(s => {
     const col = document.querySelector(`.kanban-cards[data-status="${s}"]`);
-    const items = State.leads.filter(l => l.status === s && (!search || `${l.first_name} ${l.last_name || ''} ${l.email || ''} ${l.city || ''}`.toLowerCase().includes(search)));
+    const items = State.leads.filter(l => l.status === s && (!search || `${escapeHTML(l.first_name || '')} ${escapeHTML(l.last_name || '')} ${escapeHTML(l.email || '')} ${escapeHTML(l.city || '')}`.toLowerCase().includes(search)));
     $(`#cnt-${s}`).textContent = items.length;
     col.innerHTML = items.length === 0
       ? '<div style="padding:20px 10px;color:var(--muted);font-size:11px;text-align:center;">No leads</div>'
       : items.map(l => `<div class="lead-card" onclick="openLeadDrawer('${l.id}')">
-          <div class="lead-card-name">${l.first_name} ${l.last_name || ''} <span class="lead-score ${scoreClass(l.score)}">${l.score}</span></div>
+          <div class="lead-card-name">${escapeHTML(l.first_name || '')} ${escapeHTML(l.last_name || '')} <span class="lead-score ${scoreClass(l.score)}">${l.score}</span></div>
           <div class="lead-card-meta">${[l.city, l.state].filter(Boolean).join(', ') || '—'}${l.preferred_gender ? ' · ' + l.preferred_gender : ''}</div>
           ${l.has_yorkie_before ? '<span class="lead-card-tag">Has yorkie</span>' : ''}
           ${l.vet_reference_provided ? '<span class="lead-card-tag">Vet ref ✓</span>' : ''}
@@ -766,12 +767,12 @@ window.openLeadDrawer = async (id) => {
   const l = State.leads.find(x => x.id === id); if (!l) return;
   const { data: notes } = await supabase.from('lead_notes').select('*').eq('lead_id', id).order('created_at', { ascending: false });
 
-  $('#drawerTitle').textContent = `${l.first_name} ${l.last_name || ''}`;
+  $('#drawerTitle').textContent = `${escapeHTML(l.first_name || '')} ${escapeHTML(l.last_name || '')}`;
   $('#drawerBody').innerHTML = `
     <div class="drawer-section">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
-        <div class="avatar" style="width:54px;height:54px;font-size:18px;">${(l.first_name[0] + (l.last_name?.[0] || '')).toUpperCase()}</div>
-        <div><div style="font-size:18px;font-weight:600;">${l.first_name} ${l.last_name || ''}</div><div style="font-size:12px;color:var(--muted);">${[l.city, l.state].filter(Boolean).join(', ') || 'No location'}</div></div>
+        <div class="avatar" style="width:54px;height:54px;font-size:18px;">${escapeHTML(((l.first_name?.[0] || '?') + (l.last_name?.[0] || '')).toUpperCase())}</div>
+        <div><div style="font-size:18px;font-weight:600;">${escapeHTML(l.first_name || '')} ${escapeHTML(l.last_name || '')}</div><div style="font-size:12px;color:var(--muted);">${[l.city, l.state].filter(Boolean).join(', ') || 'No location'}</div></div>
         <span class="lead-score ${scoreClass(l.score)}" style="margin-left:auto;font-size:12px;padding:5px 10px;">${l.score} ${scoreLabel(l.score)}</span>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -782,26 +783,26 @@ window.openLeadDrawer = async (id) => {
     </div>
     <div class="drawer-section">
       <h4>Contact</h4>
-      <div class="info-row"><span class="lbl">Email</span><span class="val">${l.email || '—'}</span></div>
-      <div class="info-row"><span class="lbl">Phone</span><span class="val">${l.phone || '—'}</span></div>
-      <div class="info-row"><span class="lbl">Source</span><span class="val">${l.source || '—'}</span></div>
-      <div class="info-row"><span class="lbl">Looking for</span><span class="val">${l.preferred_gender || 'Either'} · ${l.preferred_timing || 'Any time'}</span></div>
+      <div class="info-row"><span class="lbl">Email</span><span class="val">${escapeHTML(l.email || '—')}</span></div>
+      <div class="info-row"><span class="lbl">Phone</span><span class="val">${escapeHTML(l.phone || '—')}</span></div>
+      <div class="info-row"><span class="lbl">Source</span><span class="val">${escapeHTML(l.source || '—')}</span></div>
+      <div class="info-row"><span class="lbl">Looking for</span><span class="val">${l.preferred_gender || 'Either'} · ${escapeHTML(l.preferred_timing || 'Any time')}</span></div>
     </div>
     <div class="drawer-section">
       <h4>Application Answers</h4>
       ${l.application_data && Object.keys(l.application_data).length > 0 ? `
-        ${l.application_data.interested_puppy ? `<div class="info-row"><span class="lbl">Interested in</span><span class="val">${l.application_data.interested_puppy}</span></div>` : ''}
-        ${l.application_data.price_range ? `<div class="info-row"><span class="lbl">Price range</span><span class="val">${l.application_data.price_range}</span></div>` : ''}
+        ${l.application_data.interested_puppy ? `<div class="info-row"><span class="lbl">Interested in</span><span class="val">${escapeHTML(l.application_data.interested_puppy)}</span></div>` : ''}
+        ${l.application_data.price_range ? `<div class="info-row"><span class="lbl">Price range</span><span class="val">${escapeHTML(l.application_data.price_range)}</span></div>` : ''}
         ${(l.application_data.puppy_first_choice || l.application_data.puppy_second_choice || l.application_data.puppy_third_choice) ? `
           <div class="info-row"><span class="lbl">Puppy preferences</span><span class="val">${[l.application_data.puppy_first_choice, l.application_data.puppy_second_choice, l.application_data.puppy_third_choice].filter(Boolean).join(' → ') || '—'}</span></div>
         ` : ''}
-        ${l.application_data.size_preference ? `<div class="info-row"><span class="lbl">Size wanted</span><span class="val">${l.application_data.size_preference}</span></div>` : ''}
-        ${l.application_data.other_pets ? `<div class="info-row"><span class="lbl">Other pets</span><span class="val">${l.application_data.other_pets}</span></div>` : ''}
-        ${l.application_data.children ? `<div class="info-row"><span class="lbl">Children</span><span class="val">${l.application_data.children}</span></div>` : ''}
-        ${l.application_data.why_yorkie ? `<div style="margin-top:14px;"><div style="font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px;">Why a yorkie?</div><div style="background:var(--cream);padding:12px;border-radius:6px;font-size:13px;">${l.application_data.why_yorkie}</div></div>` : ''}
-        ${l.application_data.additional_info ? `<div style="margin-top:10px;"><div style="font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px;">Anything else</div><div style="background:var(--cream);padding:12px;border-radius:6px;font-size:13px;">${l.application_data.additional_info}</div></div>` : ''}
+        ${l.application_data.size_preference ? `<div class="info-row"><span class="lbl">Size wanted</span><span class="val">${escapeHTML(l.application_data.size_preference)}</span></div>` : ''}
+        ${l.application_data.other_pets ? `<div class="info-row"><span class="lbl">Other pets</span><span class="val">${escapeHTML(l.application_data.other_pets)}</span></div>` : ''}
+        ${l.application_data.children ? `<div class="info-row"><span class="lbl">Children</span><span class="val">${escapeHTML(l.application_data.children)}</span></div>` : ''}
+        ${l.application_data.why_yorkie ? `<div style="margin-top:14px;"><div style="font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px;">Why a yorkie?</div><div style="background:var(--cream);padding:12px;border-radius:6px;font-size:13px;">${escapeHTML(l.application_data.why_yorkie)}</div></div>` : ''}
+        ${l.application_data.additional_info ? `<div style="margin-top:10px;"><div style="font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px;">Anything else</div><div style="background:var(--cream);padding:12px;border-radius:6px;font-size:13px;">${escapeHTML(l.application_data.additional_info)}</div></div>` : ''}
       ` : `
-        <div class="info-row"><span class="lbl">Home type</span><span class="val">${l.home_type || '—'}</span></div>
+        <div class="info-row"><span class="lbl">Home type</span><span class="val">${escapeHTML(l.home_type || '—')}</span></div>
         <div class="info-row"><span class="lbl">Has yorkie before</span><span class="val">${l.has_yorkie_before ? 'Yes' : 'No'}</span></div>
         <div class="info-row"><span class="lbl">Has other pets</span><span class="val">${l.has_other_pets ? 'Yes' : 'No'}</span></div>
         <div class="info-row"><span class="lbl">Vet reference</span><span class="val">${l.vet_reference_provided ? '✓ Provided' : '—'}</span></div>
@@ -890,16 +891,16 @@ window.openLeadForm = (lead = null) => {
   $('#drawerBody').innerHTML = `
     <form id="leadFormEl" class="drawer-section">
       <div class="field-row">
-        <div class="field"><label>First Name *</label><input type="text" name="first_name" required value="${lead?.first_name || ''}"></div>
-        <div class="field"><label>Last Name</label><input type="text" name="last_name" value="${lead?.last_name || ''}"></div>
+        <div class="field"><label>First Name *</label><input type="text" name="first_name" required value="${escapeHTML(lead?.first_name || '')}"></div>
+        <div class="field"><label>Last Name</label><input type="text" name="last_name" value="${escapeHTML(lead?.last_name || '')}"></div>
       </div>
       <div class="field-row">
-        <div class="field"><label>Email</label><input type="email" name="email" value="${lead?.email || ''}"></div>
-        <div class="field"><label>Phone</label><input type="tel" name="phone" value="${lead?.phone || ''}"></div>
+        <div class="field"><label>Email</label><input type="email" name="email" value="${escapeHTML(lead?.email || '')}"></div>
+        <div class="field"><label>Phone</label><input type="tel" name="phone" value="${escapeHTML(lead?.phone || '')}"></div>
       </div>
       <div class="field-row">
-        <div class="field"><label>City</label><input type="text" name="city" value="${lead?.city || ''}"></div>
-        <div class="field"><label>State</label><input type="text" name="state" value="${lead?.state || 'MI'}"></div>
+        <div class="field"><label>City</label><input type="text" name="city" value="${escapeHTML(lead?.city || '')}"></div>
+        <div class="field"><label>State</label><input type="text" name="state" value="${escapeHTML(lead?.state || 'MI')}"></div>
       </div>
       <div class="field-row">
         <div class="field"><label>Source</label><select name="source"><option value="">—</option>${['Facebook','Instagram','Google','Referral','Website','Other'].map(s=>`<option ${lead?.source===s?'selected':''}>${s}</option>`).join('')}</select></div>
@@ -910,8 +911,8 @@ window.openLeadForm = (lead = null) => {
         <div class="field"><label>Score (0-100)</label><input type="number" name="score" min="0" max="100" value="${lead?.score || 50}"></div>
       </div>
       <div class="field-row">
-        <div class="field"><label>Home Type</label><input type="text" name="home_type" value="${lead?.home_type || ''}" placeholder="e.g. House w/ fenced yard"></div>
-        <div class="field"><label>Preferred Timing</label><input type="text" name="preferred_timing" value="${lead?.preferred_timing || ''}" placeholder="e.g. Spring 2026"></div>
+        <div class="field"><label>Home Type</label><input type="text" name="home_type" value="${escapeHTML(lead?.home_type || '')}" placeholder="e.g. House w/ fenced yard"></div>
+        <div class="field"><label>Preferred Timing</label><input type="text" name="preferred_timing" value="${escapeHTML(lead?.preferred_timing || '')}" placeholder="e.g. Spring 2026"></div>
       </div>
       <div class="toggle-row"><span>Has had yorkie before</span><div class="toggle ${lead?.has_yorkie_before ? 'on' : ''}" data-name="has_yorkie_before"></div></div>
       <div class="toggle-row"><span>Has other pets</span><div class="toggle ${lead?.has_other_pets ? 'on' : ''}" data-name="has_other_pets"></div></div>
@@ -960,12 +961,12 @@ function renderPuppies() {
         ${!p.featured_photo_url ? p.name : ''}
       </div>
       <div class="puppy-tile-body">
-        <div class="puppy-tile-name">${p.name}</div>
-        <div class="puppy-tile-info">${p.gender || '—'} · ${p.date_of_birth ? 'Born ' + fmtShortDate(p.date_of_birth) : 'No DOB'}<br>${litterText}</div>
+        <div class="puppy-tile-name">${escapeHTML(p.name)}</div>
+        <div class="puppy-tile-info">${escapeHTML(p.gender || '—')} · ${p.date_of_birth ? 'Born ' + fmtShortDate(p.date_of_birth) : 'No DOB'}<br>${litterText}</div>
         <div class="puppy-tile-stats">
           <div><span>Weight</span><span>${p.current_weight_lbs ? p.current_weight_lbs + ' lbs' : '—'}</span></div>
           <div><span>Age</span><span>${calcAgeWeeks(p.date_of_birth) ?? '—'} wks</span></div>
-          <div><span>${p.buyer ? 'Buyer' : 'Adult Est'}</span><span>${p.buyer ? (p.buyer.first_name + ' ' + (p.buyer.last_name?.[0] || '')) : (p.adult_estimate_lbs ? p.adult_estimate_lbs + ' lbs' : '—')}</span></div>
+          <div><span>${p.buyer ? 'Buyer' : 'Adult Est'}</span><span>${p.buyer ? escapeHTML((p.buyer.first_name || '?') + ' ' + (p.buyer.last_name?.[0] || '')) : (p.adult_estimate_lbs ? p.adult_estimate_lbs + ' lbs' : '—')}</span></div>
         </div>
       </div>
     </div>`;
@@ -995,15 +996,15 @@ window.openPuppyDrawer = async (id) => {
     <div class="drawer-section">
       <h4>Details</h4>
       <div class="info-row"><span class="lbl">Status</span><span class="val">${p.status}</span></div>
-      <div class="info-row"><span class="lbl">Gender</span><span class="val">${p.gender || '—'}</span></div>
+      <div class="info-row"><span class="lbl">Gender</span><span class="val">${escapeHTML(p.gender || '—')}</span></div>
       <div class="info-row"><span class="lbl">Date of Birth</span><span class="val">${fmtDate(p.date_of_birth)}</span></div>
       <div class="info-row"><span class="lbl">Age</span><span class="val">${calcAgeWeeks(p.date_of_birth) !== null ? calcAgeWeeks(p.date_of_birth) + ' weeks' : '—'}</span></div>
       <div class="info-row"><span class="lbl">Current Weight</span><span class="val">${p.current_weight_lbs ? p.current_weight_lbs + ' lbs' : '—'}</span></div>
       <div class="info-row"><span class="lbl">Adult Estimate</span><span class="val">${p.adult_estimate_lbs ? p.adult_estimate_lbs + ' lbs' : '—'}</span></div>
-      <div class="info-row"><span class="lbl">Color</span><span class="val">${p.color || '—'}</span></div>
-      <div class="info-row"><span class="lbl">Microchip</span><span class="val">${p.microchip_number || '—'}</span></div>
+      <div class="info-row"><span class="lbl">Color</span><span class="val">${escapeHTML(p.color || '—')}</span></div>
+      <div class="info-row"><span class="lbl">Microchip</span><span class="val">${escapeHTML(p.microchip_number || '—')}</span></div>
       <div class="info-row"><span class="lbl">Sale Price</span><span class="val">${p.sale_price ? fmtCurrency(p.sale_price) : '—'}</span></div>
-      <div class="info-row"><span class="lbl">Buyer</span><span class="val">${p.buyer ? p.buyer.first_name + ' ' + (p.buyer.last_name || '') : '—'}</span></div>
+      <div class="info-row"><span class="lbl">Buyer</span><span class="val">${p.buyer ? escapeHTML((p.buyer.first_name || '?') + ' ' + (p.buyer.last_name || '')) : '—'}</span></div>
     </div>
 
     <div class="drawer-section">
@@ -1048,7 +1049,7 @@ window.uploadPuppyPhotos = async (puppyId, files) => {
     const { error: upErr } = await supabase.storage.from('puppy-photos').upload(path, file);
     if (upErr) { showToast(upErr.message, true); continue; }
     const { data: { publicUrl } } = supabase.storage.from('puppy-photos').getPublicUrl(path);
-    await supabase.from('puppy_photos').insert({ puppy_id: puppyId, storage_path: path, public_url: publicUrl, taken_date: new Date().toISOString().slice(0, 10), on_buyer_portal: true });
+    await supabase.from('puppy_photos').insert({ puppy_id: puppyId, storage_path: path, public_url: publicUrl, taken_date: localDateStr(), on_buyer_portal: true });
     // If puppy has no featured photo, set this as featured
     const puppy = State.puppies.find(p => p.id === puppyId);
     if (puppy && !puppy.featured_photo_url) {
@@ -1060,8 +1061,11 @@ window.uploadPuppyPhotos = async (puppyId, files) => {
 };
 
 window.togglePhotoWebsite = async (photoId, puppyId) => {
-  const { data: photo } = await supabase.from('puppy_photos').select('on_website').eq('id', photoId).single();
-  await supabase.from('puppy_photos').update({ on_website: !photo.on_website }).eq('id', photoId);
+  // Audit fix #3 — guard against the photo row being deleted out from under us
+  const { data: photo, error: fetchErr } = await supabase.from('puppy_photos').select('on_website').eq('id', photoId).single();
+  if (fetchErr || !photo) { showToast('Could not load photo', true); return; }
+  const { error } = await supabase.from('puppy_photos').update({ on_website: !photo.on_website }).eq('id', photoId);
+  if (error) return showToast('Update failed: ' + error.message, true);
   showToast(photo.on_website ? 'Removed from website' : 'Added to website');
   openPuppyDrawer(puppyId);
 };
@@ -1106,14 +1110,14 @@ window.openPuppyForm = (puppy = null) => {
   $('#drawerTitle').textContent = puppy ? 'Edit Puppy' : 'Add Puppy';
   $('#drawerBody').innerHTML = `
     <form id="puppyFormEl" class="drawer-section">
-      <div class="field"><label>Name *</label><input type="text" name="name" required value="${puppy?.name || ''}"></div>
+      <div class="field"><label>Name *</label><input type="text" name="name" required value="${escapeHTML(puppy?.name || '')}"></div>
       <div class="field-row">
         <div class="field"><label>Gender</label><select name="gender"><option value="">—</option><option value="female" ${puppy?.gender==='female'?'selected':''}>Female</option><option value="male" ${puppy?.gender==='male'?'selected':''}>Male</option></select></div>
         <div class="field"><label>Status</label><select name="status">${['available','reserved','sold','keeping','archived'].map(s=>`<option value="${s}" ${puppy?.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
       </div>
       <div class="field-row">
         <div class="field"><label>Date of Birth</label><input type="date" name="date_of_birth" value="${puppy?.date_of_birth || ''}"></div>
-        <div class="field"><label>Color</label><input type="text" name="color" value="${puppy?.color || ''}" placeholder="e.g. Steel blue & tan"></div>
+        <div class="field"><label>Color</label><input type="text" name="color" value="${escapeHTML(puppy?.color || '')}" placeholder="e.g. Steel blue & tan"></div>
       </div>
       <div class="field-row">
         <div class="field"><label>Current Weight (lbs)</label><input type="number" step="0.01" name="current_weight_lbs" value="${puppy?.current_weight_lbs || ''}"></div>
@@ -1121,10 +1125,10 @@ window.openPuppyForm = (puppy = null) => {
       </div>
       <div class="field-row">
         <div class="field"><label>Sale Price</label><input type="number" step="0.01" name="sale_price" value="${puppy?.sale_price || ''}" placeholder="e.g. 5500"></div>
-        <div class="field"><label>Microchip #</label><input type="text" name="microchip_number" value="${puppy?.microchip_number || ''}"></div>
+        <div class="field"><label>Microchip #</label><input type="text" name="microchip_number" value="${escapeHTML(puppy?.microchip_number || '')}"></div>
       </div>
       <div class="field"><label>Litter</label><select name="litter_id"><option value="">— None —</option>${State.litters.map(l => `<option value="${l.id}" ${puppy?.litter_id===l.id?'selected':''}>${l.dam?.name || '?'} × ${l.sire?.name || '?'}${l.whelp_date ? ' (' + fmtShortDate(l.whelp_date) + ')' : ''}</option>`).join('')}</select></div>
-      <div class="field"><label>Buyer</label><select name="buyer_id"><option value="">— None —</option>${State.leads.map(l => `<option value="${l.id}" ${puppy?.buyer_id===l.id?'selected':''}>${l.first_name} ${l.last_name || ''}</option>`).join('')}</select></div>
+      <div class="field"><label>Buyer</label><select name="buyer_id"><option value="">— None —</option>${State.leads.map(l => `<option value="${l.id}" ${puppy?.buyer_id===l.id?'selected':''}>${escapeHTML(l.first_name || '')} ${escapeHTML(l.last_name || '')}</option>`).join('')}</select></div>
       <div class="field"><label>Description (for website)</label><textarea name="description" rows="3">${puppy?.description || ''}</textarea></div>
       <button type="submit" class="btn btn-gold btn-block mt-20">${puppy ? 'Save Changes' : 'Add Puppy'}</button>
     </form>
@@ -1178,7 +1182,7 @@ function renderParents() {
     <div class="puppy-tile" onclick="openParentDrawer('${p.id}')">
       <div class="puppy-photo" style="${cssUrl(p.photo_url)}">${!p.photo_url ? escapeHTML(p.name) : ''}</div>
       <div class="puppy-tile-body">
-        <div class="puppy-tile-name">${p.name}</div>
+        <div class="puppy-tile-name">${escapeHTML(p.name)}</div>
         <div class="puppy-tile-info">${p.role === 'dam' ? 'Dam' : 'Sire'} · ${p.weight_lbs ? p.weight_lbs + ' lbs' : '—'}${p.embark_cleared ? ' · ✓ Embark' : ''}</div>
       </div>
     </div>
@@ -1231,14 +1235,14 @@ window.openParentForm = (parent = null) => {
   $('#drawerBody').innerHTML = `
     <form id="parentFormEl" class="drawer-section">
       <div class="field-row">
-        <div class="field"><label>Name *</label><input type="text" name="name" required value="${parent?.name || ''}"></div>
+        <div class="field"><label>Name *</label><input type="text" name="name" required value="${escapeHTML(parent?.name || '')}"></div>
         <div class="field"><label>Role *</label><select name="role" required><option value="dam" ${parent?.role==='dam'?'selected':''}>Dam (female)</option><option value="sire" ${parent?.role==='sire'?'selected':''}>Sire (male)</option></select></div>
       </div>
       <div class="field-row">
         <div class="field"><label>Weight (lbs)</label><input type="number" step="0.1" name="weight_lbs" value="${parent?.weight_lbs || ''}"></div>
         <div class="field"><label>Date of Birth</label><input type="date" name="date_of_birth" value="${parent?.date_of_birth || ''}"></div>
       </div>
-      <div class="field"><label>Color</label><input type="text" name="color" value="${parent?.color || ''}" placeholder="e.g. Steel blue & tan"></div>
+      <div class="field"><label>Color</label><input type="text" name="color" value="${escapeHTML(parent?.color || '')}" placeholder="e.g. Steel blue & tan"></div>
       <div class="field"><label>Photo</label><input type="file" id="parentPhotoFile" accept="image/*"><div class="helper-text">Pick a photo to upload after saving</div></div>
       <div class="field"><label>Bio (for website)</label><textarea name="bio" rows="3">${parent?.bio || ''}</textarea></div>
       <div class="toggle-row"><span>Embark health-cleared</span><div class="toggle ${parent?.embark_cleared ? 'on' : ''}" data-name="embark_cleared"></div></div>
@@ -1340,10 +1344,10 @@ window.openPaymentForm = () => {
     <form id="payFormEl" class="drawer-section">
       <div class="field-row">
         <div class="field"><label>Amount *</label><input type="number" step="0.01" name="amount" required placeholder="500.00"></div>
-        <div class="field"><label>Date *</label><input type="date" name="payment_date" required value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="field"><label>Date *</label><input type="date" name="payment_date" required value="${localDateStr()}"></div>
       </div>
       <div class="field"><label>Payment Method *</label><select name="payment_method" required>${['square','venmo','cashapp','paypal','zelle','cash','check','other'].map(m=>`<option value="${m}">${m.toUpperCase()}</option>`).join('')}</select></div>
-      <div class="field"><label>From (Lead/Buyer)</label><select name="lead_id"><option value="">— None —</option>${State.leads.map(l => `<option value="${l.id}">${l.first_name} ${l.last_name || ''}</option>`).join('')}</select></div>
+      <div class="field"><label>From (Lead/Buyer)</label><select name="lead_id"><option value="">— None —</option>${State.leads.map(l => `<option value="${l.id}">${escapeHTML(l.first_name || '')} ${escapeHTML(l.last_name || '')}</option>`).join('')}</select></div>
       <div class="field"><label>For Puppy</label><select name="puppy_id"><option value="">— None —</option>${State.puppies.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}</select></div>
       <div class="field"><label>Reference / Confirmation #</label><input type="text" name="reference_number" placeholder="Optional"></div>
       <div class="toggle-row"><span>Is this a deposit?</span><div class="toggle" data-name="is_deposit"></div></div>
@@ -1380,7 +1384,7 @@ window.openInvoiceForm = () => {
         <div class="field"><label>Invoice # *</label><input type="text" name="invoice_number" required value="${num}"></div>
         <div class="field"><label>Total Amount *</label><input type="number" step="0.01" name="total_amount" required></div>
       </div>
-      <div class="field"><label>Buyer</label><select name="lead_id"><option value="">—</option>${State.leads.map(l => `<option value="${l.id}">${l.first_name} ${l.last_name || ''}</option>`).join('')}</select></div>
+      <div class="field"><label>Buyer</label><select name="lead_id"><option value="">—</option>${State.leads.map(l => `<option value="${l.id}">${escapeHTML(l.first_name || '')} ${escapeHTML(l.last_name || '')}</option>`).join('')}</select></div>
       <div class="field"><label>Puppy</label><select name="puppy_id"><option value="">—</option>${State.puppies.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}</select></div>
       <div class="field"><label>Status</label><select name="status">${['draft','sent','partial','paid','overdue','cancelled'].map(s=>`<option value="${s}">${s}</option>`).join('')}</select></div>
       <div class="field"><label>Due Date</label><input type="date" name="due_date"></div>
@@ -1448,7 +1452,7 @@ window.openExpenseForm = () => {
     <form id="expFormEl" class="drawer-section">
       <div class="field-row">
         <div class="field"><label>Amount *</label><input type="number" step="0.01" name="amount" required></div>
-        <div class="field"><label>Date *</label><input type="date" name="expense_date" required value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="field"><label>Date *</label><input type="date" name="expense_date" required value="${localDateStr()}"></div>
       </div>
       <div class="field"><label>Category *</label><select name="category" required>${['vet','food','supplies','stud_fee','registration','marketing','mileage','utilities','other'].map(c=>`<option value="${c}">${c.replace('_',' ')}</option>`).join('')}</select></div>
       <div class="field"><label>Description *</label><input type="text" name="description" required placeholder="e.g. Pearl 8 wk vaccines"></div>
@@ -1496,8 +1500,8 @@ $('#taskSearch').addEventListener('input', renderCalendar);
 
 function renderCalendar() {
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const todayStr = today.toISOString().slice(0, 10);
-  const weekFromNow = new Date(today.getTime() + 7 * 86400000).toISOString().slice(0, 10);
+  const todayStr = localDateStr(today);
+  const weekFromNow = localDateStr(new Date(today.getTime() + 7 * 86400000));
 
   // Stats
   const todayTasks = State.tasks.filter(t => !t.completed && t.due_date === todayStr).length;
@@ -1567,7 +1571,7 @@ function formatTaskDate(d, todayStr) {
   if (d === 'No date') return 'No Due Date';
   if (d === todayStr) return 'Today · ' + fmtDate(d);
   const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+  const tomorrowStr = localDateStr(tomorrow);
   if (d === tomorrowStr) return 'Tomorrow · ' + fmtDate(d);
   if (d < todayStr) return `Overdue · ${fmtDate(d)}`;
   return fmtDate(d);
@@ -1583,6 +1587,43 @@ function cssUrl(u) {
   return `background-image:url('${safe}')`;
 }
 window.cssUrl = cssUrl;
+
+// Audit fix #16, #17 — local-date helper. new Date().toISOString().slice(0,10) returns UTC,
+// which bumps to tomorrow for evening EST users and breaks YTD math + date defaults.
+function localDateStr(d) {
+  d = d || new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+window.localDateStr = localDateStr;
+
+// Audit fix #1, #5 — load wrapper that surfaces errors instead of swallowing them silently.
+async function safeLoad(name, queryFn) {
+  try {
+    const { data, error } = await queryFn();
+    if (error) {
+      console.error(`[load ${name}]`, error);
+      showToast(`Couldn't load ${name}: ${error.message}`, true);
+      return [];
+    }
+    return data || [];
+  } catch (err) {
+    console.error(`[load ${name} threw]`, err);
+    showToast(`Couldn't load ${name} — check connection`, true);
+    return [];
+  }
+}
+
+// Audit fix #7 — render wrapper that catches a thrown render error so the rest of the UI still works.
+function safeRender(name, fn) {
+  try { fn(); }
+  catch (err) {
+    console.error(`[render ${name}]`, err);
+    showToast(`Couldn't render ${name} — refresh if stuck`, true);
+  }
+}
 
 window.toggleTask = async (id, completed) => {
   const upd = { completed, completed_at: completed ? new Date().toISOString() : null };
@@ -1604,7 +1645,7 @@ window.openTaskForm = (task = null) => {
   $('#drawerTitle').textContent = task ? 'Edit Task' : 'Add Task';
   $('#drawerBody').innerHTML = `
     <form id="taskFormEl" class="drawer-section">
-      <div class="field"><label>Title *</label><input type="text" name="title" required value="${task?.title || ''}" placeholder="e.g. Pearl 8 wk vaccines"></div>
+      <div class="field"><label>Title *</label><input type="text" name="title" required value="${escapeHTML(task?.title || '')}" placeholder="e.g. Pearl 8 wk vaccines"></div>
       <div class="field-row">
         <div class="field"><label>Due Date</label><input type="date" name="due_date" value="${task?.due_date || ''}"></div>
         <div class="field"><label>Time (optional)</label><input type="time" name="due_time" value="${task?.due_time || ''}"></div>
@@ -1643,7 +1684,7 @@ window.autoGenerateTasks = async () => {
       { weeks: 6, title: `${p.name} — Microchip + photo update`, type: 'photo_update' }
     ];
     for (const m of milestones) {
-      const due = new Date(dob.getTime() + m.weeks * 7 * 86400000).toISOString().slice(0, 10);
+      const due = localDateStr(new Date(dob.getTime() + m.weeks * 7 * 86400000));
       // Check if a similar task already exists
       const exists = State.tasks.some(t => t.title === m.title);
       if (!exists) newTasks.push({ title: m.title, due_date: due, task_type: m.type, related_puppy_id: p.id });
@@ -1660,7 +1701,7 @@ window.autoGenerateTasks = async () => {
   for (const l of State.litters) {
     if (l.status === 'archived' || l.status === 'placed') continue;
     if (l.due_date) {
-      const dueChk = new Date(new Date(l.due_date).getTime() - 7 * 86400000).toISOString().slice(0, 10);
+      const dueChk = localDateStr(new Date(new Date(l.due_date).getTime() - 7 * 86400000));
       const title = `${l.dam?.name || 'Dam'} — Whelping prep (1 week before due)`;
       if (!State.tasks.some(t => t.title === title)) {
         newTasks.push({ title, due_date: dueChk, task_type: 'breeding', related_litter_id: l.id });
@@ -1772,7 +1813,7 @@ window.openContractForm = (c = null) => {
       const path = `contracts/${id}-signed.${ext}`;
       const { error: upErr } = await supabase.storage.from('documents').upload(path, file, { upsert: true });
       if (!upErr) {
-        await supabase.from('contracts').update({ signed_document_url: path, status: 'signed', signed_date: new Date().toISOString().slice(0,10) }).eq('id', id);
+        await supabase.from('contracts').update({ signed_document_url: path, status: 'signed', signed_date: localDateStr() }).eq('id', id);
       }
     }
     showToast(c ? 'Contract updated' : 'Contract added');
