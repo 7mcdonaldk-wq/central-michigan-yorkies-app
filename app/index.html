@@ -573,8 +573,16 @@ window.showToast = showToast;
 // AUTH
 // ============================================================
 async function init() {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session) { State.user = session.user; showApp(); } else { showLogin(); }
+  // Audit fix #4 — try/catch around auth so a network failure shows a sensible login instead of a blank screen
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) { State.user = session.user; showApp(); } else { showLogin(); }
+  } catch (err) {
+    console.error('[init getSession failed]', err);
+    showLogin();
+    const errEl = $('#loginError');
+    if (errEl) { errEl.textContent = 'Could not reach the server. Check your connection and sign in again.'; errEl.classList.add('show'); }
+  }
   supabase.auth.onAuthStateChange((event, session) => {
     if (event === 'SIGNED_OUT' || !session) { State.user = null; showLogin(); }
     else if (event === 'SIGNED_IN') { State.user = session.user; showApp(); }
@@ -595,13 +603,29 @@ $('#loginForm').addEventListener('submit', async (e) => {
   const email = $('#loginEmail').value; const password = $('#loginPassword').value;
   const btn = $('#loginBtn'); btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Signing in...';
   const errEl = $('#loginError'); errEl.classList.remove('show');
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  btn.disabled = false; btn.textContent = 'Sign In';
-  if (error) { errEl.textContent = error.message; errEl.classList.add('show'); }
+  // Audit fix #4 — try/catch so a thrown network error doesn't leave the button stuck on "Signing in..."
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) { errEl.textContent = error.message; errEl.classList.add('show'); }
+  } catch (err) {
+    console.error('[signIn threw]', err);
+    errEl.textContent = 'Could not connect. Check your internet and try again.';
+    errEl.classList.add('show');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Sign In';
+  }
 });
 
 $('#signOutBtn').addEventListener('click', async () => {
-  await supabase.auth.signOut();
+  // Audit fix #4 — even sign-out can fail. Force the local UI back to the login screen either way.
+  try {
+    await supabase.auth.signOut();
+  } catch (err) {
+    console.error('[signOut threw]', err);
+    State.user = null;
+    showLogin();
+    showToast('Signed out locally — server didn\'t respond', true);
+  }
 });
 
 // ============================================================
@@ -785,7 +809,7 @@ window.openLeadDrawer = async (id) => {
     </div>
     <div class="drawer-section">
       <h4>Notes (${notes?.length || 0})</h4>
-      ${(notes || []).map(n => `<div class="note-item"><div class="note-meta">${fmtDate(n.created_at)} · ${n.note_type}</div>${n.content}</div>`).join('') || '<div style="font-size:12px;color:var(--muted);">No notes yet.</div>'}
+      ${(notes || []).map(n => `<div class="note-item"><div class="note-meta">${fmtDate(n.created_at)} · ${escapeHTML(n.note_type || 'general')}</div>${escapeHTML(n.content || '')}</div>`).join('') || '<div style="font-size:12px;color:var(--muted);">No notes yet.</div>'}
       <textarea id="newNoteText" placeholder="Add a note about this lead..." style="width:100%;padding:10px;border:1px solid var(--line);border-radius:5px;font-size:13px;min-height:70px;margin-top:10px;font-family:inherit;"></textarea>
       <button class="btn btn-gold btn-sm mt-10" onclick="addLeadNote('${l.id}')">Add Note</button>
     </div>
@@ -927,7 +951,7 @@ function renderPuppies() {
     return;
   }
   $('#puppiesGrid').innerHTML = list.map(p => {
-    const photoStyle = p.featured_photo_url ? `background-image:url('${p.featured_photo_url}')` : '';
+    const photoStyle = cssUrl(p.featured_photo_url);
     const litterText = p.litter ? `${p.litter.dam?.name || '?'} × ${p.litter.sire?.name || '?'}` : 'No litter';
     return `<div class="puppy-tile" onclick="openPuppyDrawer('${p.id}')">
       <div class="puppy-photo" style="${photoStyle}">
@@ -956,7 +980,7 @@ window.openPuppyDrawer = async (id) => {
 
   $('#drawerTitle').textContent = p.name;
   $('#drawerBody').innerHTML = `
-    <div class="puppy-photo" style="aspect-ratio:1;border-radius:8px;margin-bottom:18px;${p.featured_photo_url ? `background-image:url('${p.featured_photo_url}')` : ''}">${!p.featured_photo_url ? p.name : ''}</div>
+    <div class="puppy-photo" style="aspect-ratio:1;border-radius:8px;margin-bottom:18px;${cssUrl(p.featured_photo_url)}">${!p.featured_photo_url ? escapeHTML(p.name) : ''}</div>
 
     <div class="toggle-row"><span><strong>Show on website</strong><div style="font-size:11px;color:var(--muted);">When ON, this puppy appears live on the public site</div></span><div class="toggle ${p.on_website ? 'on' : ''}" onclick="togglePuppyWebsite('${p.id}', this)"></div></div>
 
@@ -1152,7 +1176,7 @@ function renderParents() {
   }
   $('#parentsGrid').innerHTML = State.parents.map(p => `
     <div class="puppy-tile" onclick="openParentDrawer('${p.id}')">
-      <div class="puppy-photo" style="${p.photo_url ? `background-image:url('${p.photo_url}')` : ''}">${!p.photo_url ? p.name : ''}</div>
+      <div class="puppy-photo" style="${cssUrl(p.photo_url)}">${!p.photo_url ? escapeHTML(p.name) : ''}</div>
       <div class="puppy-tile-body">
         <div class="puppy-tile-name">${p.name}</div>
         <div class="puppy-tile-info">${p.role === 'dam' ? 'Dam' : 'Sire'} · ${p.weight_lbs ? p.weight_lbs + ' lbs' : '—'}${p.embark_cleared ? ' · ✓ Embark' : ''}</div>
@@ -1551,6 +1575,14 @@ function formatTaskDate(d, todayStr) {
 
 function escapeHTML(s) { if (!s) return ''; return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 window.escapeHTML = escapeHTML;
+
+// Audit fix #9 — safe CSS url() wrapper. Strips anything that could break out of url('...') or inject CSS.
+function cssUrl(u) {
+  if (!u) return '';
+  const safe = String(u).replace(/['"\\()\n\r<>]/g, '');
+  return `background-image:url('${safe}')`;
+}
+window.cssUrl = cssUrl;
 
 window.toggleTask = async (id, completed) => {
   const upd = { completed, completed_at: completed ? new Date().toISOString() : null };
@@ -2113,6 +2145,16 @@ function renderBuyerInsights() {
 // ============================================================
 // BOOT
 // ============================================================
+// Audit fix #6 — global error handlers so a single bug doesn't blank the screen
+window.addEventListener('error', (e) => {
+  console.error('[global error]', e.error || e.message);
+  try { showToast('Something went wrong — your data is safe. Refresh if anything looks off.', true); } catch (_) {}
+});
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('[unhandled rejection]', e.reason);
+  try { showToast('Background task failed: ' + (e.reason?.message || 'unknown'), true); } catch (_) {}
+});
+
 init();
 </script>
 
