@@ -1083,20 +1083,82 @@ window.deletePhoto = async (photoId, path, puppyId) => {
   showToast('Photo deleted'); openPuppyDrawer(puppyId);
 };
 
-window.logWeight = async (puppyId) => {
-  const w = prompt('Current weight in pounds (e.g. 1.4):'); if (!w) return;
-  const weight = parseFloat(w); if (isNaN(weight)) return showToast('Invalid weight', true);
-  await supabase.from('puppy_weights').insert({ puppy_id: puppyId, weight_lbs: weight });
-  await supabase.from('puppies').update({ current_weight_lbs: weight }).eq('id', puppyId);
-  showToast('Weight logged ✓');
-  await loadPuppies(); renderPuppies(); openPuppyDrawer(puppyId);
+window.logWeight = (puppyId) => {
+  // Audit fix #22 — replaced prompt() with a real form (mobile-friendly, validation, date picker, error handling)
+  const puppy = State.puppies.find(p => p.id === puppyId);
+  if (!puppy) return showToast('Puppy not found', true);
+  $('#drawerTitle').textContent = `Log Weight — ${puppy.name}`;
+  $('#drawerBody').innerHTML = `
+    <form id="weightFormEl" class="drawer-section">
+      <p style="color:var(--muted);font-size:13px;margin-bottom:18px;">Most recent weight: <strong>${puppy.current_weight_lbs ? puppy.current_weight_lbs + ' lbs' : '—'}</strong></p>
+      <div class="field-row">
+        <div class="field"><label>Weight (lbs) *</label><input type="number" step="0.01" min="0.1" max="50" name="weight_lbs" required autofocus placeholder="e.g. 1.4"></div>
+        <div class="field"><label>Date *</label><input type="date" name="recorded_date" required value="${localDateStr()}"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button type="button" class="btn btn-ghost" onclick="openPuppyDrawer('${puppyId}')">← Back</button>
+        <button type="submit" class="btn btn-gold" style="flex:1;justify-content:center;">Save Weight</button>
+      </div>
+    </form>
+  `;
+  openDrawer();
+  $('#weightFormEl').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const weight = parseFloat(fd.get('weight_lbs'));
+    const recorded_date = fd.get('recorded_date');
+    if (isNaN(weight) || weight <= 0) return showToast('Please enter a valid weight', true);
+    const { error: insErr } = await supabase.from('puppy_weights').insert({ puppy_id: puppyId, weight_lbs: weight, recorded_date });
+    if (insErr) return showToast('Save failed: ' + insErr.message, true);
+    // Only update current_weight_lbs if this is the latest reading
+    const isLatest = !puppy.current_weight_lbs || recorded_date >= localDateStr();
+    if (isLatest) {
+      const { error: updErr } = await supabase.from('puppies').update({ current_weight_lbs: weight }).eq('id', puppyId);
+      if (updErr) console.error('[update current_weight failed]', updErr);
+    }
+    showToast('Weight logged ✓');
+    await loadPuppies(); renderPuppies(); openPuppyDrawer(puppyId);
+  });
 };
-window.logHealth = async (puppyId) => {
-  const type = prompt('Type: vaccination / deworming / vet_visit / microchip / other'); if (!type) return;
-  const desc = prompt('Description (e.g. "Round 2 of vaccines, DHPP"):'); if (!desc) return;
-  const { error } = await supabase.from('puppy_health_records').insert({ puppy_id: puppyId, record_type: type, description: desc });
-  if (error) return showToast(error.message, true);
-  showToast('Health record added'); openPuppyDrawer(puppyId);
+window.logHealth = (puppyId) => {
+  // Audit fix #22 — replaced 3 chained prompt()s with a real form (typed dropdown, optional vet name, date picker, validation)
+  const puppy = State.puppies.find(p => p.id === puppyId);
+  if (!puppy) return showToast('Puppy not found', true);
+  $('#drawerTitle').textContent = `Health Record — ${puppy.name}`;
+  $('#drawerBody').innerHTML = `
+    <form id="healthFormEl" class="drawer-section">
+      <div class="field"><label>Type *</label><select name="record_type" required>
+        <option value="">— Select —</option>
+        <option value="vaccination">Vaccination</option>
+        <option value="deworming">Deworming</option>
+        <option value="vet_visit">Vet Visit / Checkup</option>
+        <option value="microchip">Microchip</option>
+        <option value="medication">Medication</option>
+        <option value="other">Other</option>
+      </select></div>
+      <div class="field"><label>Description *</label><input type="text" name="description" required autofocus placeholder='e.g. Round 2 vaccines, DHPP'></div>
+      <div class="field-row">
+        <div class="field"><label>Date *</label><input type="date" name="record_date" required value="${localDateStr()}"></div>
+        <div class="field"><label>Vet Name (optional)</label><input type="text" name="vet_name" placeholder="e.g. Dr. Anderson"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button type="button" class="btn btn-ghost" onclick="openPuppyDrawer('${puppyId}')">← Back</button>
+        <button type="submit" class="btn btn-gold" style="flex:1;justify-content:center;">Save Record</button>
+      </div>
+    </form>
+  `;
+  openDrawer();
+  $('#healthFormEl').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const obj = Object.fromEntries(fd);
+    Object.keys(obj).forEach(k => { if (obj[k] === '') obj[k] = null; });
+    obj.puppy_id = puppyId;
+    const { error } = await supabase.from('puppy_health_records').insert(obj);
+    if (error) return showToast('Save failed: ' + error.message, true);
+    showToast('Health record added ✓');
+    openPuppyDrawer(puppyId);
+  });
 };
 window.deletePuppy = async (id) => {
   if (!confirm('Permanently delete this puppy? This cannot be undone.')) return;
