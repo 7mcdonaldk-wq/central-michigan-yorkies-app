@@ -1,1 +1,64 @@
-PLACEHOLDER_WILL_BE_REPLACED
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Central Michigan Yorkies — Owner Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root {
+    --cream: #faf5ec; --ivory: #fdfaf3; --paper: #ffffff;
+    --blush: #e8d5c4; --rose: #d4a59a;
+    --gold: #b8924d; --gold-light: #c9a961; --gold-soft: #f0e4ce;
+    --charcoal: #2c2826; --charcoal-soft: #4a423d; --muted: #8a7d72;
+    --line: #e6dcc9; --line-soft: #f0e9da;
+    --success: #6b8e5a; --success-soft: #e4ebd9;
+    --warning: #c89148; --warning-soft: #f5e8d2;
+    --danger: #b75858; --danger-soft: #f0d9d9;
+    --info: #6a8aa6; --info-soft: #dde5ed;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { font-family: 'Manrope', sans-serif; background: var(--cream); color: var(--charcoal); font-size: 14px; line-height: 1.5; overflow-x: hidden; }
+  h1, h2, h3, h4 { font-family: 'Cormorant Garamond', serif; font-weight: 600; letter-spacing: -0.01em; }
+  button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+  input, select, textarea { font-family: inherit; }
+
+  /* === LOGIN SCREEN === */
+  .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; background: linear-gradient(135deg, var(--cream) 0%, var(--blush) 100%); }
+  .login-card { background: var(--ivory); border-radius: 12px; padding: 44px 38px; max-width: 420px; width: 100%; box-shadow: 0 30px 80px rgba(44,40,38,0.15); border: 1px solid var(--line); }
+  .login-logo { text-align: center; margin-bottom: 32px; }
+  .login-logo .name { font-family: 'Cormorant Garamond', serif; font-size: 28px; font-weight: 600; line-height: 1.15; color: var(--charcoal); }
+  .login-logo .name span { color: var(--gold); font-style: italic; }
+  .login-logo .tag { font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+  .login-card h2 { font-size: 26px; text-align: center; margin-bottom: 8px; }
+  .login-card .subtitle { text-align: center; color: var(--muted); margin-bottom: 28px; font-size: 13px; }
+  .login-card form { display: flex; flex-direction: column; gap: 14px; }
+  .login-error { background: var(--danger-soft); color: var(--danger); padding: 10px 14px; border-radius: 5px; font-size: 12.5px; display: none; }
+  .login-error.show { display: block; }
+
+  /* === LAYOUT === */
+  .app { display: none; min-height: 100vh; }
+  .app.active { display: flex; flex-direction: row; }
+
+  /* === SIDEBAR === */
+  .sidebar { background: var(--charcoal); color: var(--ivory); padding: 26px 0; position: sticky; top: 0; height: 100vh; overflow-y: auto; flex: 0 0 240px; width: 240px; order: 1; }
+  .sidebar-logo { padding: 0 24px 28px; border-bottom: 1px solid rgba(253,250,243,0.08); margin-bottom: 18px; }
+  .sidebar-logo .name { font-family: 'Cormorant Garamond', serif; font-size: 19px; font-weight: 600; line-height: 1.15; }
+  .sidebar-logo .name span { color: var(--gold-light); font-style: italic; }
+  .sidebar-logo .tag { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: rgba(253,250,243,0.5); margin-top: 6px; }
+  .nav-group { padding: 0 12px; }
+  .nav-group-label { font-size: 10px; letter-spacing: 0.25em; text-transform: uppercase; color: rgba(253,250,243,0.4); padding: 14px 12px 8px; }
+  .nav-item { display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 6px; font-size: 13.5px; font-weight: 500; color: rgba(253,250,243,0.7); cursor: pointer; margin-bottom: 2px; transition: all 0.18s ease; width: 100%; text-align: left; }
+  .nav-item:hover { background: rgba(253,250,243,0.06); color: var(--ivory); }
+  .nav-item.active { background: var(--gold); color: var(--charcoal); font-weight: 600; }
+  .nav-item.active svg { color: var(--charcoal); }
+  .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .nav-badge { margin-left: auto; background: var(--gold); color: var(--charcoal); font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; }
+  .nav-item.active .nav-badge { background: var(--charcoal); color: var(--gold); }
+
+  /* === MAIN === */
+  .main { background: var(--cream); min-height: 100vh; padding-bottom: 100px; flex: 1 1 auto; min-width: 0; order: 2; }
+  .topbar { padding: 22px 36px; background: var(--cream); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 30; }
