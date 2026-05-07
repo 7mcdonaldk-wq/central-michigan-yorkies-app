@@ -322,6 +322,7 @@
     <div class="nav-group">
       <div class="nav-group-label">Insights</div>
       <button class="nav-item" data-screen="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Reports</button>
+      <button class="nav-item" data-screen="gallery"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>Gallery</button>
     </div>
     <div class="nav-group">
       <div class="nav-group-label">Account</div>
@@ -509,6 +510,27 @@
         </div>
       </div>
 
+      <!-- GALLERY -->
+      <div class="screen" id="screen-gallery">
+        <div class="stat-grid" id="galleryStats"></div>
+        <div class="card">
+          <div class="section-title"><span>Upload Photo</span></div>
+          <p style="color:var(--charcoal-soft);font-size:13.5px;margin-bottom:16px;">Add a photo to the public gallery on centralmiyorkies.com/gallery. JPG/PNG/WebP up to 10MB.</p>
+          <form id="galleryUploadForm">
+            <div class="field"><label>Photo *</label><input type="file" id="galleryPhotoFile" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif" required></div>
+            <div class="field-row">
+              <div class="field"><label>Caption</label><input type="text" name="caption" id="galleryCaption" placeholder="e.g. Pearl's first snow"></div>
+              <div class="field"><label>Date Taken</label><input type="date" name="taken_date" id="galleryTakenDate"></div>
+            </div>
+            <button type="submit" class="btn btn-gold btn-block mt-20" id="galleryUploadBtn">Upload Photo</button>
+          </form>
+        </div>
+        <div class="card mt-20">
+          <div class="section-title"><span>Photo Wall</span><span id="galleryCount" style="font-size:11px;color:var(--muted);"></span></div>
+          <div id="galleryGrid"><div class="full-loader"><span class="loader"></span> Loading photos...</div></div>
+        </div>
+      </div>
+
     </div>
   </main>
 </div>
@@ -548,7 +570,7 @@ window.supabase = supabase;
 // ============================================================
 // STATE
 // ============================================================
-const State = { user: null, parents: [], litters: [], puppies: [], leads: [], payments: [], invoices: [], expenses: [], lead_notes: [], tasks: [], contracts: [] };
+const State = { user: null, parents: [], litters: [], puppies: [], leads: [], payments: [], invoices: [], expenses: [], lead_notes: [], tasks: [], contracts: [], gallery_photos: [] };
 window.State = State;
 
 // ============================================================
@@ -637,7 +659,7 @@ function goto(screen) {
   if (target) target.classList.add('active');
   $$('.nav-item[data-screen]').forEach(n => n.classList.toggle('active', n.dataset.screen === screen));
   $$('.mobile-nav-item[data-screen]').forEach(n => n.classList.toggle('active', n.dataset.screen === screen));
-  const titles = { dashboard: ['Owner Console', 'Dashboard'], leads: ['Pipeline', 'Leads'], puppies: ['Inventory', 'Puppies'], litters: ['Breeding', 'Litters & Parents'], calendar: ['Schedule', 'Calendar'], money: ['Finance', 'Money'], expenses: ['Finance', 'Expenses'], contracts: ['Documents', 'Contracts & PDFs'], reports: ['Insights', 'Reports'] };
+  const titles = { dashboard: ['Owner Console', 'Dashboard'], leads: ['Pipeline', 'Leads'], puppies: ['Inventory', 'Puppies'], litters: ['Breeding', 'Litters & Parents'], calendar: ['Schedule', 'Calendar'], money: ['Finance', 'Money'], expenses: ['Finance', 'Expenses'], contracts: ['Documents', 'Contracts & PDFs'], reports: ['Insights', 'Reports'], gallery: ['Insights', 'Gallery'] };
   if (titles[screen]) { $('#topBreadcrumb').textContent = titles[screen][0]; $('#topTitle').textContent = titles[screen][1]; }
   closeSidebar(); window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -653,7 +675,7 @@ window.toggleSidebar = toggleSidebar;
 // DATA LOADING
 // ============================================================
 async function loadAllData() {
-  await Promise.all([loadParents(), loadLitters(), loadPuppies(), loadLeads(), loadPayments(), loadInvoices(), loadExpenses(), loadTasks(), loadContracts()]);
+  await Promise.all([loadParents(), loadLitters(), loadPuppies(), loadLeads(), loadPayments(), loadInvoices(), loadExpenses(), loadTasks(), loadContracts(), loadGallery()]);
   renderAll();
 }
 
@@ -697,6 +719,7 @@ function renderAll() {
   safeRender('calendar', renderCalendar);
   safeRender('contracts', renderContracts);
   safeRender('reports', renderReports);
+  safeRender('gallery', renderGallery);
 }
 
 // ============================================================
@@ -1192,14 +1215,18 @@ window.openPuppyForm = (puppy = null) => {
       <div class="field"><label>Litter</label><select name="litter_id"><option value="">— None —</option>${State.litters.map(l => `<option value="${l.id}" ${puppy?.litter_id===l.id?'selected':''}>${l.dam?.name || '?'} × ${l.sire?.name || '?'}${l.whelp_date ? ' (' + fmtShortDate(l.whelp_date) + ')' : ''}</option>`).join('')}</select></div>
       <div class="field"><label>Buyer</label><select name="buyer_id"><option value="">— None —</option>${State.leads.map(l => `<option value="${l.id}" ${puppy?.buyer_id===l.id?'selected':''}>${escapeHTML(l.first_name || '')} ${escapeHTML(l.last_name || '')}</option>`).join('')}</select></div>
       <div class="field"><label>Description (for website)</label><textarea name="description" rows="3">${puppy?.description || ''}</textarea></div>
+      <div class="field"><label>Alumni Story (for Gallery — short caption like "Now lives in Saginaw")</label><textarea name="alumni_story" rows="2">${puppy?.alumni_story || ''}</textarea></div>
+      <div class="toggle-row"><span><strong>Show in Alumni Gallery</strong><div style="font-size:11px;color:var(--muted);">Only takes effect when status is "sold". Adds this puppy to the public Past Puppies section.</div></span><div class="toggle ${puppy?.show_in_alumni ? 'on' : ''}" data-name="show_in_alumni"></div></div>
       <button type="submit" class="btn btn-gold btn-block mt-20">${puppy ? 'Save Changes' : 'Add Puppy'}</button>
     </form>
   `;
   openDrawer();
+  setupToggles();
   $('#puppyFormEl').addEventListener('submit', async (e) => {
     e.preventDefault(); const fd = new FormData(e.target); const obj = Object.fromEntries(fd);
     Object.keys(obj).forEach(k => { if (obj[k] === '') obj[k] = null; });
     ['current_weight_lbs','adult_estimate_lbs','sale_price'].forEach(k => { if (obj[k]) obj[k] = parseFloat(obj[k]); });
+    $$('#puppyFormEl .toggle').forEach(t => obj[t.dataset.name] = t.classList.contains('on'));
     const { error } = puppy ? await supabase.from('puppies').update(obj).eq('id', puppy.id) : await supabase.from('puppies').insert(obj);
     if (error) return showToast(error.message, true);
     showToast(puppy ? 'Puppy updated' : 'Puppy added');
@@ -1310,6 +1337,7 @@ window.openParentForm = (parent = null) => {
       <div class="toggle-row"><span>Embark health-cleared</span><div class="toggle ${parent?.embark_cleared ? 'on' : ''}" data-name="embark_cleared"></div></div>
       <div class="toggle-row"><span>Show on website</span><div class="toggle ${(parent?.on_website ?? true) ? 'on' : ''}" data-name="on_website"></div></div>
       <div class="toggle-row"><span>Currently active</span><div class="toggle ${(parent?.active ?? true) ? 'on' : ''}" data-name="active"></div></div>
+      <div class="toggle-row"><span><strong>Retired</strong><div style="font-size:11px;color:var(--muted);">When ON, this dog appears in the public Gallery instead of the active Parents section</div></span><div class="toggle ${parent?.retired ? 'on' : ''}" data-name="retired"></div></div>
       <button type="submit" class="btn btn-gold btn-block mt-20">${parent ? 'Save Changes' : 'Add Parent'}</button>
     </form>
   `;
@@ -2244,6 +2272,85 @@ function renderBuyerInsights() {
     </div>
   `;
 }
+
+// ============================================================
+// GALLERY — photo wall for the public website
+// ============================================================
+async function loadGallery() {
+  await safeLoad('gallery_photos', async () => {
+    const { data, error } = await supabase.from('gallery_photos')
+      .select('id, photo_url, caption, taken_date, created_at')
+      .order('taken_date', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    State.gallery_photos = data || [];
+  });
+}
+
+function renderGallery() {
+  const photos = State.gallery_photos;
+  const grid = $('#galleryGrid');
+  $('#galleryStats').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Total Photos</div><div class="stat-val">${photos.length}</div></div>
+    <div class="stat-card"><div class="stat-label">This Month</div><div class="stat-val">${photos.filter(p => { const d = p.created_at ? new Date(p.created_at) : null; const now = new Date(); return d && d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); }).length}</div></div>
+  `;
+  $('#galleryCount').textContent = photos.length ? `${photos.length} photo${photos.length === 1 ? '' : 's'}` : '';
+
+  if (photos.length === 0) {
+    grid.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📷</div><h3>No photos yet</h3><p>Upload your first photo above. They appear instantly on centralmiyorkies.com/gallery.</p></div>`;
+    return;
+  }
+  grid.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;">${photos.map(p => `
+    <div style="position:relative;aspect-ratio:1;background:var(--ivory);border:1px solid var(--line);border-radius:4px;overflow:hidden;">
+      <img src="${escapeHTML(p.photo_url)}" alt="${escapeHTML(p.caption || '')}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block;">
+      ${p.caption ? `<div style="position:absolute;left:0;right:0;bottom:0;padding:8px 10px;background:linear-gradient(to top,rgba(44,40,38,0.78),transparent);color:#fff;font-size:11.5px;font-family:'Cormorant Garamond',serif;font-style:italic;">${escapeHTML(p.caption)}</div>` : ''}
+      <button onclick="deleteGalleryPhoto('${p.id}', '${escapeHTML(p.photo_url)}')" title="Delete" style="position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;border:none;background:rgba(44,40,38,0.7);color:#fff;cursor:pointer;font-size:16px;line-height:1;">×</button>
+    </div>`).join('')}</div>`;
+}
+
+window.deleteGalleryPhoto = async (id, url) => {
+  if (!confirm('Delete this photo? It will be removed from the public gallery.')) return;
+  // Pull storage path from URL: .../storage/v1/object/public/gallery-photos/<path>
+  const m = url.match(/\/gallery-photos\/(.+)$/);
+  const storagePath = m ? m[1] : null;
+  const { error: delErr } = await supabase.from('gallery_photos').delete().eq('id', id);
+  if (delErr) return showToast(delErr.message, true);
+  if (storagePath) {
+    // Best effort — don't block on storage cleanup failure
+    try { await supabase.storage.from('gallery-photos').remove([storagePath]); } catch (_) {}
+  }
+  showToast('Photo deleted');
+  await loadGallery(); renderGallery();
+};
+
+// Wire up the upload form (one-time bind on script init)
+document.addEventListener('submit', async (e) => {
+  if (e.target?.id !== 'galleryUploadForm') return;
+  e.preventDefault();
+  const file = $('#galleryPhotoFile').files[0];
+  if (!file) return showToast('Pick a photo first', true);
+  const btn = $('#galleryUploadBtn');
+  btn.disabled = true; btn.textContent = 'Uploading...';
+  try {
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const { error: upErr } = await supabase.storage.from('gallery-photos').upload(path, file, { upsert: false });
+    if (upErr) throw upErr;
+    const { data: { publicUrl } } = supabase.storage.from('gallery-photos').getPublicUrl(path);
+    const caption = $('#galleryCaption').value.trim() || null;
+    const taken = $('#galleryTakenDate').value || null;
+    const { error: insErr } = await supabase.from('gallery_photos').insert({ photo_url: publicUrl, caption, taken_date: taken });
+    if (insErr) throw insErr;
+    showToast('Photo uploaded ✓');
+    e.target.reset();
+    await loadGallery(); renderGallery();
+  } catch (err) {
+    console.error(err);
+    showToast('Upload failed: ' + (err.message || 'unknown'), true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Upload Photo';
+  }
+});
 
 // ============================================================
 // BOOT
