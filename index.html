@@ -472,11 +472,15 @@
         <div class="card mt-20">
           <div class="section-title"><span>Auto-Generated PDFs</span></div>
           <p style="color:var(--charcoal-soft);font-size:13.5px;margin-bottom:16px;">Generate branded packets for any puppy in your inventory. PDFs are generated on the fly — no setup needed.</p>
-          <div class="field"><label>Choose Puppy</label><select id="pdfPuppySelect"></select></div>
+          <div class="field-row">
+            <div class="field"><label>Choose Puppy</label><select id="pdfPuppySelect"></select></div>
+            <div class="field"><label>Buyer (for Purchase Agreement)</label><select id="pdfBuyerSelect"></select></div>
+          </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:14px;">
             <button class="btn btn-ghost btn-block" onclick="generateHealthRecordPDF()">📄 Health Record</button>
             <button class="btn btn-ghost btn-block" onclick="generatePedigreePDF()">📄 Pedigree</button>
             <button class="btn btn-ghost btn-block" onclick="generateWelcomePacketPDF()">📄 Welcome Packet</button>
+            <button class="btn btn-gold btn-block" onclick="generatePurchaseAgreementPDF()">📄 Purchase Agreement</button>
           </div>
         </div>
       </div>
@@ -1842,6 +1846,10 @@ function renderContracts() {
     ? '<option value="">Add puppies first</option>'
     : State.puppies.map(p => `<option value="${p.id}">${escapeHTML(p.name)}</option>`).join('');
 
+  // PDF buyer select (optional — used by the Purchase Agreement)
+  $('#pdfBuyerSelect').innerHTML = '<option value="">— Blank / fill in by hand —</option>'
+    + State.leads.map(l => `<option value="${l.id}">${escapeHTML(l.first_name)} ${escapeHTML(l.last_name||'')}</option>`).join('');
+
   // Filter contracts
   const search = $('#contractSearch').value.toLowerCase();
   let list = State.contracts.filter(c => !search || (c.lead && (`${c.lead.first_name} ${c.lead.last_name||''}`.toLowerCase().includes(search))) || (c.puppy && c.puppy.name.toLowerCase().includes(search)));
@@ -2140,6 +2148,104 @@ window.generateWelcomePacketPDF = async () => {
   pdfFooter(doc);
   doc.save(`${puppy.name}-welcome-packet.pdf`);
   showToast('Welcome Packet PDF generated ✓');
+};
+
+window.generatePurchaseAgreementPDF = async () => {
+  const data = await getPdfPuppy(); if (!data) return;
+  const { puppy } = data;
+  const litter = State.litters.find(l => l.id === puppy.litter_id);
+  const buyerId = $('#pdfBuyerSelect').value;
+  const buyer = buyerId ? State.leads.find(l => l.id === buyerId) : null;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  const M = 14, RIGHT = 196, MAXW = 182, BOTTOM = 274;
+  let y = 0, page = 1;
+
+  function footerAndCount() { pdfFooter(doc); doc.setFontSize(8); doc.setTextColor(160, 150, 140); doc.text('Page ' + page, RIGHT, 285, { align: 'right' }); }
+  function ensure(h) { if (y + h > BOTTOM) { footerAndCount(); doc.addPage(); page++; y = 20; } }
+  function heading(t) { ensure(16); y += 2; doc.setFont('helvetica', 'bold'); doc.setFontSize(11.5); doc.setTextColor(44, 40, 38); doc.text(t, M, y); y += 2; doc.setDrawColor(184, 146, 77); doc.setLineWidth(0.4); doc.line(M, y, RIGHT, y); y += 6; }
+  function para(t, bold) { doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(9.5); doc.setTextColor(60, 55, 50); const lines = doc.splitTextToSize(t, MAXW); lines.forEach(line => { ensure(5); doc.text(line, M, y); y += 4.7; }); y += 2.6; }
+  function kv(label, val) { ensure(5.6); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(44, 40, 38); doc.text(label, M, y); doc.setFont('helvetica', 'normal'); doc.setTextColor(60, 55, 50); doc.text(String(val == null || val === '' ? '______________________________' : val), M + 46, y); y += 5.6; }
+  function sigLine(label) { ensure(18); y += 9; doc.setDrawColor(120, 110, 100); doc.setLineWidth(0.3); doc.line(M, y, M + 88, y); doc.line(M + 104, y, RIGHT, y); y += 4.5; doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(120, 110, 100); doc.text(label, M, y); doc.text('Date', M + 104, y); y += 4; }
+
+  pdfHeader(doc, 'Puppy Purchase Agreement & Health Guarantee');
+  y = 40;
+
+  para('This Puppy Purchase Agreement ("Agreement") is entered into by and between Central Michigan Yorkies ("Breeder") and the Buyer named below. This Agreement covers the sale of one (1) Yorkshire Terrier puppy and sets out the health guarantee and the responsibilities of both parties. By signing, the Buyer confirms they have read and agree to all terms.');
+
+  heading('Parties & Puppy');
+  const buyerName = buyer ? `${buyer.first_name || ''} ${buyer.last_name || ''}`.trim() : '';
+  kv('Buyer Name', buyerName);
+  kv('Buyer Email', buyer?.email);
+  kv('Buyer Phone', buyer?.phone);
+  kv('Buyer Address', [buyer?.address, buyer?.city, buyer?.state, buyer?.zip].filter(Boolean).join(', '));
+  y += 1;
+  kv('Puppy Name', puppy.name);
+  kv('Breed', 'Yorkshire Terrier');
+  kv('Gender', puppy.gender ? puppy.gender.charAt(0).toUpperCase() + puppy.gender.slice(1) : '');
+  kv('Date of Birth', puppy.date_of_birth ? fmtDate(puppy.date_of_birth) : '');
+  kv('Color', puppy.color);
+  kv('Microchip #', puppy.microchip_number || 'Pending');
+  kv('Sire (Father)', litter?.sire?.name);
+  kv('Dam (Mother)', litter?.dam?.name);
+  y += 1;
+  kv('Purchase Price', puppy.sale_price ? fmtCurrency(puppy.sale_price) : '');
+  kv('Deposit Paid', '');
+  kv('Balance Due', '');
+  kv('Go-Home Date', '');
+
+  heading('1. One-Year Genetic Health Guarantee');
+  para('The Breeder guarantees that, to the best of the Breeder\'s knowledge, the puppy is in good health at the time of pickup. The Breeder further guarantees the puppy against death caused by a life-threatening congenital or hereditary (genetic) defect for a period of one (1) year from the puppy\'s date of birth.');
+  para('If, within this period, a licensed veterinarian diagnoses such a defect and it is confirmed in writing (including a necropsy report at the Buyer\'s expense in the event of death), the Breeder will replace the puppy with one of comparable quality and value from a current or future litter when available. This Agreement provides for replacement only; it does NOT provide for cash refunds, and it does NOT cover veterinary bills, shipping, or any other costs incurred by the Buyer.');
+
+  heading('2. Required Veterinary Examination');
+  para('The Buyer must have the puppy examined by a licensed veterinarian within seventy-two (72) hours of pickup (excluding Sundays and holidays). This exam is required to validate the health guarantee. If the puppy is found to have a serious, life-threatening health issue at this exam, the Buyer must notify the Breeder immediately and may return the puppy for a full refund or replacement. Failure to complete this exam within 72 hours voids all health guarantees under this Agreement.');
+
+  heading('3. DNA & Genetic Testing');
+  para('The Breeder\'s parent dogs are health-screened through Wisdom Panel DNA testing. The Breeder does NOT honor, accept, or recognize the results of any third-party, at-home, or Buyer-initiated DNA test (including but not limited to Embark, Wisdom Panel, or similar) as grounds for a refund, replacement, return, or any other claim under this Agreement.');
+  para('Only a written diagnosis from a licensed, practicing veterinarian — based on physical examination and accepted clinical diagnostics — will be recognized as valid evidence of a covered genetic defect. DNA marker results, carrier status, breed-composition results, or estimated adult weight from any DNA panel are not, by themselves, evidence of a health defect and do not qualify for any remedy under this Agreement.');
+
+  heading('4. Parasites, Coccidiosis & Giardia');
+  para('The Buyer acknowledges that coccidia and giardia are common single-celled protozoa that are frequently present in puppies and are very commonly triggered or "flared up" by the normal stress of rehoming, travel, vaccinations, and changes in food, water, and environment. Intestinal worms, fleas, and other parasites are also common in young puppies.');
+  para('The presence of coccidia, giardia, worms, or other parasites is NOT considered a hereditary or life-threatening condition, is NOT a reflection of the Breeder\'s care, and is expressly EXCLUDED from this health guarantee. Diagnosis and treatment of any parasite, coccidia, or giardia after the puppy leaves the Breeder\'s home is the sole responsibility of the Buyer. The Breeder strongly recommends prompt, routine veterinary care, which typically resolves these conditions quickly.');
+
+  heading('5. Conditions Not Covered');
+  para('This guarantee does NOT cover, and the Breeder is not responsible for: hypoglycemia (low blood sugar); coccidia, giardia, worms, fleas, or other parasites; kennel cough or other respiratory infection; any viral or bacterial illness (including parvovirus and distemper) contracted after pickup; umbilical hernia; retained or misaligned teeth and bite (over/underbite); undescended testicles (cryptorchidism); luxating patella except where it is severe and surgically required and confirmed genetic; cosmetic traits, coat color, markings, ear set, or adult size/weight not matching any estimate; and any illness, injury, or death resulting from accident, neglect, improper diet, abuse, lack of veterinary care, failure to maintain vaccinations, or exposure to disease after pickup.');
+  para('Estimated adult weights and sizes are good-faith estimates only and are never guaranteed. "Teacup," "micro," and similar terms describe size only and are not a breed, standard, or guarantee of adult weight.');
+
+  heading('6. Buyer Responsibilities');
+  para('The Buyer agrees to provide the puppy with proper food, fresh water, shelter, exercise, grooming, and routine veterinary care, including completing the recommended series of vaccinations and parasite prevention. Because Yorkshire Terriers are small and fragile, the Buyer agrees to protect the puppy from falls and jumps from heights (furniture, arms, stairs) and from rough handling. The Buyer agrees to keep food available and watch for signs of hypoglycemia, especially in the first weeks home. The health guarantee is void if the puppy is not maintained in this manner.');
+
+  heading('7. Spay / Neuter & Registration');
+  para('Unless explicitly agreed in writing, this puppy is sold as a pet/companion only, with NO breeding rights. The Buyer agrees to spay or neuter the puppy at the age recommended by their veterinarian and to provide the Breeder with proof upon request. Breeding this puppy without written breeding rights from the Breeder is a breach of this Agreement and voids all guarantees. Where applicable, registration papers will be provided as "limited" (non-breeding) registration.');
+
+  heading('8. Deposit & Payment');
+  para('A deposit reserves a specific puppy for the Buyer and is NON-REFUNDABLE. The deposit is applied toward the purchase price. The remaining balance is due in full, in the agreed form of payment, on or before the go-home date. The Breeder is not obligated to release the puppy until the balance is paid in full. If the Buyer fails to complete the purchase, the deposit is forfeited and the Breeder may sell the puppy to another home.');
+
+  heading('9. Return Policy');
+  para('If at any time during the puppy\'s life the Buyer can no longer keep the puppy, the Buyer agrees to first contact the Breeder. The Breeder will take the dog back or assist in rehoming. Under no circumstances may the dog be sold, given to a shelter, or surrendered to a rescue without first offering it back to the Breeder. The return of a dog under this section does not entitle the Buyer to any refund.');
+
+  heading('10. General Terms');
+  para('This Agreement represents the entire understanding between the parties and supersedes any prior verbal or written statements. No verbal promises or representations are binding. This Agreement is governed by the laws of the State of Michigan. If any provision is found unenforceable, the remaining provisions remain in full effect. This guarantee is non-transferable and applies only to the original Buyer named above.');
+
+  heading('Acknowledgement & Signatures');
+  para('By signing below, the Buyer and the Breeder acknowledge that they have read, understand, and agree to all of the terms set out in this Agreement.');
+  sigLine('Buyer Signature');
+  sigLine('Breeder Signature — Central Michigan Yorkies');
+
+  footerAndCount();
+
+  // Open straight to the print dialog so it can be printed and signed by both parties.
+  // Falls back to a download if the browser blocks the pop-up.
+  doc.autoPrint();
+  const win = window.open(doc.output('bloburl'), '_blank');
+  if (win) {
+    showToast('Purchase Agreement ready — print it for both signatures ✓');
+  } else {
+    doc.save(`${puppy.name}-purchase-agreement.pdf`);
+    showToast('Pop-up blocked — PDF downloaded instead. Open it to print & sign.', true);
+  }
 };
 
 // ============================================================
